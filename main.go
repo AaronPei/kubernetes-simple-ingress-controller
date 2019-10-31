@@ -3,18 +3,15 @@ package main
 import (
 	"context"
 	"flag"
-	"os"
-	"path/filepath"
-
-	"github.com/calebdoxsey/kubernetes-simple-ingress-controller/server"
-	"github.com/calebdoxsey/kubernetes-simple-ingress-controller/watcher"
+	"github.com/cnych/kubernetes-simple-ingress-controller/server"
+	"github.com/cnych/kubernetes-simple-ingress-controller/watcher"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
+	"os"
 )
 
 var (
@@ -29,13 +26,25 @@ func main() {
 	flag.Parse()
 
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
-	runtime.ErrorHandlers = []func(error){
-		func(err error) { log.Warn().Err(err).Msg("[k8s]") },
+
+	// ErrorHandlers 是一个函数列表，当发生一些错误时，会调用这些函数。
+	runtime.ErrorHandlers = []func(error) {
+		func(err error) {
+			log.Warn().Err(err).Msg("[k8s]")
+		},
 	}
 
-	client, err := kubernetes.NewForConfig(getKubernetesConfig())
+	// 从集群内的token和ca.crt获取 Config
+	config, err := rest.InClusterConfig()
+	// 由于我们要通过集群内部的 Service 进行服务的访问，所以不能在集群外部使用，所以不能使用 kubeconfig 的方式来获取 Config
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create kubernetes client")
+		log.Fatal().Err(err).Msg("get kubernetes configuration failed")
+	}
+
+	// 从 Config 中创建一个新的 Clientset
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Fatal().Err(err).Msg("create kubernetes client failed")
 	}
 
 	s := server.New(server.WithHost(host), server.WithPort(port), server.WithTLSPort(tlsPort))
@@ -53,22 +62,4 @@ func main() {
 	if err := eg.Wait(); err != nil {
 		log.Fatal().Err(err).Send()
 	}
-}
-
-func getKubernetesConfig() *rest.Config {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		config, err = clientcmd.BuildConfigFromFlags("", filepath.Join(homeDir(), ".kube", "config"))
-	}
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to get kubernetes configuration")
-	}
-	return config
-}
-
-func homeDir() string {
-	if h := os.Getenv("HOME"); h != "" {
-		return h
-	}
-	return os.Getenv("USERPROFILE") // windows
 }

@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/bep/debounce"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -128,4 +130,32 @@ func waitForPort(ctx context.Context, port int) bool {
 		}
 	}
 	panic("impossible")
+}
+
+
+func TestDebounced(t *testing.T) {
+	var counter uint64
+
+	f := func() {
+		fmt.Println("calling", time.Now().String())
+		atomic.AddUint64(&counter, 1)
+	}
+
+	debounced := debounce.New(100 * time.Millisecond)
+
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 10; j++ {
+			fmt.Println("start", i, j)
+			debounced(f)
+			fmt.Println("end", i, j)
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	c := int(atomic.LoadUint64(&counter))
+
+	fmt.Println("Counter is", c)
+	// Output: Counter is 3
+
 }

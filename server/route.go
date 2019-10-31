@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/calebdoxsey/kubernetes-simple-ingress-controller/watcher"
+	"github.com/cnych/kubernetes-simple-ingress-controller/watcher"
 	"github.com/rs/zerolog/log"
 	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -60,13 +60,15 @@ func (rt *RoutingTable) init(payload *watcher.Payload) {
 	if payload == nil {
 		return
 	}
-	for _, ingressPayload := range payload.Ingresses {
-		for _, rule := range ingressPayload.Ingress.Spec.Rules {
+	// 根据 payload 数据重新初始化 路由表
+	for _, ingressPayload := range payload.Ingresses {  // 循环所有的 IngressPayload
+		for _, rule := range ingressPayload.Ingress.Spec.Rules {  // 循环 Ingress Rules 规则
 			m, ok := rt.certificatesByHost[rule.Host]
 			if !ok {
 				m = make(map[string]*tls.Certificate)
 				rt.certificatesByHost[rule.Host] = m
 			}
+			// 更新路由表证书信息
 			for _, t := range ingressPayload.Ingress.Spec.TLS {
 				for _, h := range t.Hosts {
 					cert, ok := payload.TLSCertificates[t.SecretName]

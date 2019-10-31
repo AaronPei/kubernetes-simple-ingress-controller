@@ -9,7 +9,7 @@ import (
 	"net/http/httputil"
 	"sync/atomic"
 
-	"github.com/calebdoxsey/kubernetes-simple-ingress-controller/watcher"
+	"github.com/cnych/kubernetes-simple-ingress-controller/watcher"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 )
@@ -22,7 +22,7 @@ type Server struct {
 	ready *Event
 }
 
-// New creates a new Server.
+// New 创建一个新的服务器
 func New(options ...Option) *Server {
 	cfg := defaultConfig()
 	for _, o := range options {
@@ -36,13 +36,15 @@ func New(options ...Option) *Server {
 	return s
 }
 
-// Run runs the server.
+// Run 启动服务器.
 func (s *Server) Run(ctx context.Context) error {
-	// don't start listening until the first payload
+	// 直到第一个 payload 数据后才开始监听
 	s.ready.Wait(ctx)
 
+	// 启动 80 和 443 两个端口
 	var eg errgroup.Group
 	eg.Go(func() error {
+		// 当前的 Server 实现了 Handler 接口（ServeHTTP函数)
 		srv := http.Server{
 			Addr:    fmt.Sprintf("%s:%d", s.cfg.host, s.cfg.tlsPort),
 			Handler: s,
@@ -76,18 +78,20 @@ func (s *Server) Run(ctx context.Context) error {
 
 // ServeHTTP serves an HTTP request.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 获取后端的真实服务地址
 	backendURL, err := s.routingTable.Load().(*RoutingTable).GetBackend(r.Host, r.URL.Path)
 	if err != nil {
 		http.Error(w, "upstream server not found", http.StatusNotFound)
 		return
 	}
 	log.Info().Str("host", r.Host).Str("path", r.URL.Path).Str("backend", backendURL.String()).Msg("proxying request")
+	// 使用 NewSingleHostReverseProxy 进行代理请求
 	p := httputil.NewSingleHostReverseProxy(backendURL)
 	p.ErrorLog = stdlog.New(log.Logger, "", 0)
 	p.ServeHTTP(w, r)
 }
 
-// Update updates the server with new ingress rules.
+// Update 更新路由表根据新的 Ingress 规则
 func (s *Server) Update(payload *watcher.Payload) {
 	s.routingTable.Store(NewRoutingTable(payload))
 	s.ready.Set()

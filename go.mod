@@ -1,4 +1,4 @@
-module github.com/calebdoxsey/kubernetes-simple-ingress-controller
+module github.com/cnych/kubernetes-simple-ingress-controller
 
 go 1.13
 

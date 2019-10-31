@@ -49,6 +49,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 	ingressLister := factory.Extensions().V1beta1().Ingresses().Lister()
 
 	addBackend := func(ingressPayload *IngressPayload, backend extensionsv1beta1.IngressBackend) {
+		// 通过 Ingress 所在的 namespace 和 ServiceName 获取 Service 对象
 		svc, err := serviceLister.Services(ingressPayload.Ingress.Namespace).Get(backend.ServiceName)
 		if err != nil {
 			log.Error().Err(err).
@@ -56,11 +57,13 @@ func (w *Watcher) Run(ctx context.Context) error {
 				Str("name", backend.ServiceName).
 				Msg("unknown service")
 		} else {
+			// Service 端口映射
 			m := make(map[string]int)
 			for _, port := range svc.Spec.Ports {
 				m[port.Name] = int(port.Port)
 			}
 			ingressPayload.ServicePorts[svc.Name] = m
+			// {svcname: {httpport: 80, httpsport: 443}}
 		}
 	}
 
@@ -69,6 +72,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			TLSCertificates: make(map[string]*tls.Certificate),
 		}
 
+		// 获得所有的 Ingress
 		ingresses, err := ingressLister.List(labels.Everything())
 		if err != nil {
 			log.Error().Err(err).Msg("failed to list ingresses")
@@ -76,26 +80,51 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}
 
 		for _, ingress := range ingresses {
+			// 构造 IngressPayload 结构
 			ingressPayload := IngressPayload{
 				Ingress:      ingress,
 				ServicePorts: make(map[string]map[string]int),
 			}
 			payload.Ingresses = append(payload.Ingresses, ingressPayload)
 
+			//apiVersion: extensions/v1beta1
+			//kind: Ingress
+			//metadata:
+			//  name: test-ingress
+			//spec:
+			//  backend:
+			//    serviceName: testsvc
+			//    servicePort: 80
 			if ingress.Spec.Backend != nil {
+				// 给 ingressPayload 组装数据
 				addBackend(&ingressPayload, *ingress.Spec.Backend)
 			}
+			//apiVersion: extensions/v1beta1
+			//kind: Ingress
+			//metadata:
+			//  name: test
+			//spec:
+			//  rules:
+			//  - host: foo.bar.com
+			//    http:
+			//      paths:
+			//      - backend:
+			//          serviceName: s1
+			//          servicePort: 80
 			for _, rule := range ingress.Spec.Rules {
 				if rule.HTTP != nil {
 					continue
 				}
 				for _, path := range rule.HTTP.Paths {
+					// 给 ingressPayload 组装数据
 					addBackend(&ingressPayload, path.Backend)
 				}
 			}
 
+			// 证书处理
 			for _, rec := range ingress.Spec.TLS {
 				if rec.SecretName != "" {
+					// 获取证书对应的 secret
 					secret, err := secretLister.Secrets(ingress.Namespace).Get(rec.SecretName)
 					if err != nil {
 						log.Error().
@@ -105,7 +134,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 							Msg("unknown secret")
 						continue
 					}
-
+					// 加载证书
 					cert, err := tls.X509KeyPair(secret.Data["tls.crt"], secret.Data["tls.key"])
 					if err != nil {
 						log.Error().
@@ -137,6 +166,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 		},
 	}
 
+	// 启动 Secret、Ingress、Service 的 Informer，用同一个事件处理器 handler
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
